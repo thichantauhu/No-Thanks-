@@ -78,12 +78,33 @@ function botThink(room){
   action==='take'?take(room,p.id):pass(room,p.id);
 }
 
+// Serve the game UI. Unknown browser routes fall back to index.html so Render never shows a plain "Not found" page.
 const server=http.createServer((req,res)=>{
-  let file=req.url==='/'?'/index.html':req.url.split('?')[0];
-  const fp=path.normalize(path.join(publicDir,file));
-  if(!fp.startsWith(publicDir)){res.writeHead(403);return res.end('Forbidden');}
-  fs.readFile(fp,(err,data)=>{ if(err){res.writeHead(404);return res.end('Not found');} const ext=path.extname(fp); const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'}; res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);});
+  try {
+    const pathname = new URL(req.url || '/', 'http://localhost').pathname;
+    let relative = decodeURIComponent(pathname).replace(/^\/+/, '');
+    if(!relative || !path.extname(relative)) relative = 'index.html';
+    const fp = path.resolve(publicDir, relative);
+    if(fp !== publicDir && !fp.startsWith(publicDir + path.sep)){ res.writeHead(403); return res.end('Forbidden'); }
+    fs.readFile(fp,(err,data)=>{
+      if(err){
+        if(relative !== 'index.html'){
+          return fs.readFile(path.join(publicDir,'index.html'),(fallbackErr,fallbackData)=>{
+            if(fallbackErr){res.writeHead(500);return res.end('Server error');}
+            res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});res.end(fallbackData);
+          });
+        }
+        res.writeHead(404);return res.end('Not found');
+      }
+      const ext=path.extname(fp).toLowerCase();
+      const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
+      res.writeHead(200,{'Content-Type':types[ext]||'application/octet-stream','Cache-Control':'no-store'});res.end(data);
+    });
+  } catch(e) {
+    res.writeHead(400); res.end('Bad request');
+  }
 });
+
 const wss=new WebSocket.Server({server});
 wss.on('connection',(ws)=>{
   let room=null, pid=null;
